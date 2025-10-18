@@ -3,7 +3,7 @@
         <div style="padding: 0 50px;">
             <div>
                 <p style="font-size: 24px;padding: 10px 0;font-weight: bolder;">
-                    <span @click="goBack" style="cursor: pointer;;display: inline-block;padding: 0 20px 0 0;">
+                    <span @click="goBack" style="cursor: pointer;display: inline-block;padding: 0 20px 0 0;">
                         <i class="el-icon-arrow-left"></i>
                         返回首页
                     </span>
@@ -21,7 +21,7 @@
                     </el-tabs>
                     <div style="padding: 20px 0 30px 0;">
                         <span @click="addModel"
-                            style="cursor: pointer;;padding: 10px 20px;background-color: #000;border-radius: 5px;color: #fff;">
+                            style="cursor: pointer;padding: 10px 20px;background-color: #000;border-radius: 5px;color: #fff;">
                             新增项目
                             <i class="el-icon-right"></i>
                         </span>
@@ -102,13 +102,48 @@
                 </el-col>
             </el-row>
         </div>
+
+        <!-- BMI 悬浮球（可拖拽） -->
+        <div 
+            class="bmi-float-ball" 
+            @mousedown.prevent="startDrag"
+            @click.prevent="toggleBmiWindow">
+            <span class="bmi-label">BMI</span>
+        </div>
+
+        <!-- BMI 计算器窗口 -->
+        <div v-if="showBmiWindow" class="bmi-window" @click.stop>
+            <p class="bmi-title">BMI 健康指标计算器</p>
+            <div class="bmi-inputs">
+                <el-input 
+                    v-model="bmiData.height" 
+                    placeholder="请输入身高（cm）" 
+                    size="small"
+                    type="number"
+                ></el-input>
+                <el-input 
+                    v-model="bmiData.weight" 
+                    placeholder="请输入体重（kg）" 
+                    size="small"
+                    type="number"
+                ></el-input>
+            </div>
+            <div class="bmi-actions">
+                <el-button size="small" type="primary" @click="calcBmi">计算</el-button>
+                <el-button size="small" type="success" @click="copyBmi" :disabled="!bmiData.result">复制</el-button>
+            </div>
+            <div v-if="bmiData.result" class="bmi-result">
+                <p><strong>BMI：{{ bmiData.result }}</strong></p>
+                <p>{{ bmiData.comment }}</p>
+            </div>
+        </div>
+
         <el-dialog :show-close="false" :visible.sync="dialogUserOperaion" width="26%">
             <div slot="title">
                 <p class="dialog-title">{{ !isOperation ? '健康模型新增' : '健康模型修改' }}</p>
             </div>
             <div style="padding:0 20px;">
                 <p>*图标</p>
-                <!-- 图标 -->
                 <el-row style="margin-top: 10px;">
                     <el-upload class="avatar-uploader" action="/api/personal-heath/v1.0/file/upload"
                         :show-file-list="false" :on-success="handleAvatarSuccess">
@@ -116,35 +151,28 @@
                         <i v-else class="el-icon-plus avatar-uploader-icon"></i>
                     </el-upload>
                 </el-row>
-                <!-- 配置名 -->
                 <el-row style="padding: 0 10px 0 0;">
-                    <p>
-                        <span class="modelName">*配置名</span>
-                    </p>
+                    <p><span class="modelName">*配置名</span></p>
                     <input class="input-title" v-model="data.name" placeholder="请输入">
                 </el-row>
-                <!-- 单位 -->
                 <el-row style="padding: 0 10px 0 0;">
                     <p style="font-size: 12px;padding: 3px 0;">
                         <span class="modelName">*单位</span>
                     </p>
                     <input class="input-title" v-model="data.unit" placeholder="请输入">
                 </el-row>
-                <!-- 符号 -->
                 <el-row style="padding: 0 10px 0 0;">
                     <p style="font-size: 12px;padding: 3px 0;">
                         <span class="modelName">*符号</span>
                     </p>
                     <input class="input-title" v-model="data.symbol" placeholder="请输入">
                 </el-row>
-                <!-- 正常值 -->
                 <el-row style="padding: 0 20px 0 0;">
                     <p style="font-size: 12px;padding: 3px 0;">
                         <span class="modelName">*阈值（格式：最小值,最大值）</span>
                     </p>
                     <input class="input-title" v-model="data.valueRange" placeholder="请输入">
                 </el-row>
-                <!-- 简介 -->
                 <el-row style="padding: 0 10px 0 0;">
                     <p style="font-size: 12px;padding: 3px 0;">
                         <span class="modelName">*简介</span>
@@ -165,6 +193,7 @@
         </el-dialog>
     </div>
 </template>
+
 <script>
 import Logo from '@/components/Logo';
 export default {
@@ -180,12 +209,33 @@ export default {
             isOperation: false,
             userId: null,
             selectedModel: [],
+
+            // BMI 相关状态
+            bmiData: {
+                height: '',
+                weight: '',
+                result: '',
+                comment: ''
+            },
+            showBmiWindow: false,
+
+            // 拖拽相关
+            isPointerDown: false,
+            dragMoved: false,
+            startPos: { x: 0, y: 0 },
+            originPos: { left: 0, top: 0 },
         };
     },
     created() {
         this.getUserInfo();
         this.getAllModelConfig();
         this.getUser();
+    },
+    beforeDestroy() {
+        // 清理全局事件监听
+        document.removeEventListener('click', this.closeBmiWindow);
+        document.removeEventListener('mousemove', this.onDrag);
+        document.removeEventListener('mouseup', this.endDrag);
     },
     methods: {
         async clearData() {
@@ -204,7 +254,6 @@ export default {
             this.isOperation = false;
             this.cover = '';
         },
-        // 发送修改请求
         updateOperation() {
             this.$axios.put('/health-model-config/update', this.data).then(response => {
                 const { data } = response;
@@ -219,18 +268,15 @@ export default {
                         showConfirmButton: false,
                         timer: 1000,
                     });
-                    // 继续加载最新的模型数据
                     this.getAllModelConfig();
                 }
             })
         },
-        // 修改自己配置的模型
         updateModel(model) {
             this.data = model;
             this.dialogUserOperaion = true;
             this.isOperation = true;
         },
-        // 删除自己配置的模型
         async deleteModel(model) {
             const confirmed = await this.$swalConfirm({
                 title: '删除模型【' + model.name + "】",
@@ -240,7 +286,6 @@ export default {
             if (confirmed) {
                 const ids = [];
                 ids.push(model.id);
-                // 写删除请求
                 this.$axios.post('/health-model-config/batchDelete', ids).then(response => {
                     const { data } = response;
                     if (data.code === 200) {
@@ -251,9 +296,7 @@ export default {
                             showConfirmButton: false,
                             timer: 1000,
                         });
-                        // 继续加载最新的模型数据
                         this.getAllModelConfig();
-                        // 如果已经选中对应的模型，从列表中删除对应的项
                         this.selectedModel = this.selectedModel.filter(entity => entity.id !== model.id);
                     }
                 })
@@ -262,14 +305,11 @@ export default {
         goBack() {
             this.$router.push('/user');
         },
-        // 记录值
         toRecord() {
-            const userHealths = this.selectedModel.map(entity => {
-                return {
-                    healthModelConfigId: entity.id,
-                    value: entity.value
-                }
-            });
+            const userHealths = this.selectedModel.map(entity => ({
+                healthModelConfigId: entity.id,
+                value: entity.value
+            }));
             this.$axios.post('/user-health/save', userHealths).then(response => {
                 const { data } = response;
                 if (data.code === 200) {
@@ -278,7 +318,6 @@ export default {
                         message: '记录成功',
                         type: 'success'
                     });
-                    // 两秒后跳转出去
                     setTimeout(() => {
                         this.$router.push('/user');
                     }, 2000)
@@ -288,7 +327,6 @@ export default {
         modelSelected(model) {
             const saveFlag = this.selectedModel.find(entity => entity.id === model.id);
             if (!saveFlag) {
-                // 不存在则添加
                 this.selectedModel.push(model);
             }
         },
@@ -331,7 +369,6 @@ export default {
             this.dialogUserOperaion = true;
         },
         handleClick(tab, event) {
-            // 先去清空条件
             this.userHealthModel = {};
             if (this.activeName === 'first') {
                 this.userHealthModel.isGlobal = true;
@@ -354,9 +391,140 @@ export default {
             const userInfo = sessionStorage.getItem('userInfo');
             this.userInfo = JSON.parse(userInfo);
         },
+
+        // ---------------- BMI 功能 ----------------
+        toggleBmiWindow() {
+            // 如果刚完成拖拽，忽略此次点击（防止拖动后误触）
+            if (this.dragMoved) {
+                // 保持标记短时间内有效，避免误判
+                setTimeout(() => { this.dragMoved = false; }, 50);
+                return;
+            }
+
+            this.showBmiWindow = !this.showBmiWindow;
+
+            if (this.showBmiWindow) {
+                // 把 document 点击监听放到下一个事件循环，避免与当前 click 冲突
+                setTimeout(() => {
+                    document.addEventListener('click', this.closeBmiWindow);
+                }, 0);
+            } else {
+                document.removeEventListener('click', this.closeBmiWindow);
+            }
+        },
+        closeBmiWindow() {
+            this.showBmiWindow = false;
+            document.removeEventListener('click', this.closeBmiWindow);
+        },
+        calcBmi() {
+            const h = parseFloat(this.bmiData.height);
+            const w = parseFloat(this.bmiData.weight);
+            if (!h || !w || isNaN(h) || isNaN(w) || h <= 0) {
+                this.$message.warning('请输入合法的身高和体重！');
+                return;
+            }
+            const bmi = (w / Math.pow(h / 100, 2));
+            const bmiStr = bmi.toFixed(2);
+            this.bmiData.result = bmiStr;
+            if (bmi < 18.5) this.bmiData.comment = '偏瘦';
+            else if (bmi < 24) this.bmiData.comment = '正常';
+            else if (bmi < 28) this.bmiData.comment = '超重';
+            else this.bmiData.comment = '肥胖';
+        },
+        copyBmi() {
+            const text = this.bmiData.result || '';
+            if (!text) {
+                this.$message.warning('无可复制的 BMI 值');
+                return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    this.$message.success('BMI 数值已复制');
+                }).catch(() => {
+                    this.fallbackCopy(text);
+                });
+            } else {
+                this.fallbackCopy(text);
+            }
+        },
+        fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                this.$message.success('BMI 数值已复制');
+            } catch (err) {
+                this.$message.error('复制失败，请手动复制');
+            }
+            document.body.removeChild(textarea);
+        },
+
+        // -------- 拖拽实现（更健壮） --------
+        startDrag(e) {
+            // 准备拖拽：记录起点、元素当前位置，绑定全局移动与结束事件
+            this.isPointerDown = true;
+            this.dragMoved = false;
+            this.startPos.x = e.clientX;
+            this.startPos.y = e.clientY;
+
+            const ball = document.querySelector('.bmi-float-ball');
+            const rect = ball.getBoundingClientRect();
+            // 记录原始 left/top
+            this.originPos.left = rect.left;
+            this.originPos.top = rect.top;
+
+            // 固定到绝对 left/top，清除 right/bottom，以便我们设置 left/top 移动
+            ball.style.left = `${rect.left}px`;
+            ball.style.top = `${rect.top}px`;
+            ball.style.right = 'auto';
+            ball.style.bottom = 'auto';
+
+            // 全局监听（document），确保拖拽在移动到外部也能响应
+            document.addEventListener('mousemove', this.onDrag);
+            document.addEventListener('mouseup', this.endDrag);
+        },
+        onDrag(e) {
+            if (!this.isPointerDown) return;
+            const dx = e.clientX - this.startPos.x;
+            const dy = e.clientY - this.startPos.y;
+
+            // 细微移动不算拖拽
+            if (!this.dragMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                this.dragMoved = true;
+            }
+
+            const ball = document.querySelector('.bmi-float-ball');
+            if (!ball) return;
+
+            let newLeft = this.originPos.left + dx;
+            let newTop = this.originPos.top + dy;
+
+            // 限制在窗口内
+            const maxLeft = window.innerWidth - ball.offsetWidth;
+            const maxTop = window.innerHeight - ball.offsetHeight;
+            newLeft = Math.min(Math.max(0, newLeft), maxLeft);
+            newTop = Math.min(Math.max(0, newTop), maxTop);
+
+            ball.style.left = `${newLeft}px`;
+            ball.style.top = `${newTop}px`;
+        },
+        endDrag() {
+            // 结束拖拽，移除全局监听
+            this.isPointerDown = false;
+            document.removeEventListener('mousemove', this.onDrag);
+            document.removeEventListener('mouseup', this.endDrag);
+
+            // 保持 dragMoved 在短时间内为 true，以阻止紧接着的 click 触发
+            setTimeout(() => { this.dragMoved = false; }, 100);
+        }
     },
 };
 </script>
+
 <style scoped lang="scss">
 .item-model:hover {
     cursor: pointer;
@@ -381,5 +549,78 @@ export default {
     background-color: #f1f1f1;
     height: 50px;
     width: 85%;
+}
+
+/* BMI 悬浮球样式 */
+.bmi-float-ball {
+  position: fixed;
+  right: 30px;
+  bottom: 40px;
+  width: 60px;
+  height: 60px;
+  background-color: #409EFF;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+  cursor: grab;
+  z-index: 2000;
+  transition: transform 0.15s, background-color 0.15s;
+  user-select: none;
+}
+.bmi-float-ball:active { cursor: grabbing; }
+.bmi-float-ball:hover {
+  transform: scale(1.05);
+  background-color: #66b1ff;
+}
+.bmi-label {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+/* BMI 窗口 */
+.bmi-window {
+  position: fixed;
+  right: 100px;
+  bottom: 120px;
+  width: 280px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+  padding: 16px;
+  z-index: 2100;
+  animation: fadeIn 0.16s ease;
+}
+.bmi-title {
+  font-weight: 700;
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 10px;
+  color: #333;
+}
+.bmi-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.bmi-actions {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 10px;
+}
+.bmi-result {
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>
