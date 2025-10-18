@@ -60,7 +60,7 @@
 
 + 健康记录
 
-![](https://cdn.nlark.com/yuque/0/2025/png/53406322/1760779698760-55ce259e-32a0-42c5-abd3-faddcb89955a.png)
+![](https://cdn.nlark.com/yuque/0/2025/png/53406322/1760789163178-dee2c009-e251-48e3-aefc-4965dc96d6ed.png)
 
 + 消息
 
